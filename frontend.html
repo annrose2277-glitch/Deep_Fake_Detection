@@ -187,7 +187,7 @@
         const sentimentContent = document.getElementById('sentiment-content');
         const modContent = document.getElementById('mod-content');
 
-        const API_URL = 'http://localhost:8000/api/v1/analyze-media';
+        const API_URL = '/api/v1/analyze-media';
 
         form.addEventListener('submit', async (event) => {
             event.preventDefault();
@@ -211,10 +211,10 @@
                 { text: "Executing Stage 3: Safety Moderation...", delay: 1500 }
             ];
 
-            let delay = 0;
+            let totalDelay = 0;
             statusUpdates.forEach(update => {
-                delay += update.delay;
-                setTimeout(() => { statusIndicator.textContent = update.text; }, delay);
+                totalDelay += update.delay;
+                setTimeout(() => { statusIndicator.textContent = update.text; }, totalDelay);
             });
 
 
@@ -239,7 +239,7 @@
                 statusIndicator.textContent = `Error: ${error.message}`;
                 statusIndicator.style.color = 'var(--danger-color)';
             } finally {
-                // Hide status and re-enable button
+                // Hide status and re-enable button after a short delay
                 setTimeout(() => {
                     statusIndicator.style.display = 'none';
                     submitBtn.disabled = false;
@@ -308,27 +308,39 @@
                 document.getElementById('sentiment-results').style.display = 'none';
             }
 
-            // Render Moderation if available
+            // Render Moderation
             if (data.moderation) {
                 document.getElementById('moderation-results').style.display = 'block';
-                if (typeof data.moderation === 'object' && data.moderation !== null) {
-                    let moderationDetails = data.moderation;
-                    if (data.moderation.message && data.moderation.message.content) {
-                        try {
-                            moderationDetails = JSON.parse(data.moderation.message.content);
-                        } catch (e) {
-                            moderationDetails = data.moderation.message.content;
-                        }
-                    }
-                    
-                    let contentHtml = '<pre style="background: #f1f3f5; padding: 0.5rem; border-radius: 4px; overflow-x: auto;">' + 
-                                     (typeof moderationDetails === 'string' ? moderationDetails : JSON.stringify(moderationDetails, null, 2)) + 
-                                     '</pre>';
-                    modContent.innerHTML = contentHtml;
-                    
+                let contentHtml = '';
+                
+                if (data.moderation.status === 'success') {
+                    const evaluation = data.moderation.evaluation;
+                    const isSafe = evaluation.safe;
+                    contentHtml = `
+                        <div class="result-item">
+                            <strong>Safe for Work:</strong>
+                            <span class="${isSafe === true ? 'status-real' : (isSafe === false ? 'status-synthetic' : '')}">
+                                ${isSafe === true ? 'YES' : (isSafe === false ? 'NO' : 'UNKNOWN')}
+                            </span>
+                        </div>
+                        <div class="result-item" style="flex-direction: column; align-items: flex-start;">
+                            <strong>Reason:</strong>
+                            <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem;">${evaluation.reason || 'N/A'}</p>
+                        </div>
+                    `;
                 } else {
-                     modContent.textContent = data.moderation.reason || 'No details available.';
+                    contentHtml = `
+                        <div class="result-item">
+                            <strong>Status:</strong>
+                            <span>${(data.moderation.status || 'ERROR').toUpperCase()}</span>
+                        </div>
+                        <div class="result-item">
+                            <strong>Reason:</strong>
+                            <span>${data.moderation.reason || 'Unknown error occurred'}</span>
+                        </div>
+                    `;
                 }
+                modContent.innerHTML = contentHtml;
             } else {
                 document.getElementById('moderation-results').style.display = 'none';
             }

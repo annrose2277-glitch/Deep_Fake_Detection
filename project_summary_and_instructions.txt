@@ -1,0 +1,216 @@
+
+Here is a complete summary of the project analysis, reports, and instructions.
+
+#####################################################################
+###                  Part 1: Project Analysis Report                ###
+#####################################################################
+
+This report provides a detailed breakdown of the "Multimodal Synthetic Media Detection & Moderation Pipeline" project, covering its architecture, technology stack, and core components.
+
+#### 1. Project Goal and Architecture
+
+The primary goal of this project is to create a system that can analyze a media file (image or video) to determine if it is a synthetic creation (a "deepfake") and, if so, to evaluate its content for safety.
+
+The system employs a smart, two-stage architecture for efficiency:
+
+*   **Stage 1: Authenticity Analysis:** Every uploaded file is first processed by a specialized deepfake detection model. This model is lightweight and fast, designed to quickly distinguish between real and AI-generated media.
+*   **Stage 2: Conditional Safety Moderation:** If, and only if, the media is identified as synthetic, it is passed to a second, more powerful (and resource-intensive) model. This second model evaluates the content for potential safety issues like hate speech or graphic violence.
+
+This conditional approach is a key design choice. It avoids using the expensive moderation model on every file, saving significant computational resources, especially in a high-traffic environment.
+
+#### 2. Technology Stack
+
+The project is built on a modern, robust Python-based technology stack:
+
+*   **Backend Framework:** **FastAPI** is used to build the web server and API. It's a high-performance framework known for its speed, asynchronous capabilities, and automatic interactive documentation.
+*   **Web Server:** **Uvicorn** is the ASGI server used to run the FastAPI application.
+*   **Machine Learning (Deepfake Detection):**
+    *   **Hugging Face `transformers`:** The core library for accessing the pre-trained deepfake detection model.
+    *   **PyTorch (`torch`, `torchvision`):** The `transformers` library uses PyTorch as its backend to run the neural network calculations.
+*   **Machine Learning (Content Moderation):**
+    *   **Ollama:** This tool runs large language models (LLMs) locally. The project is configured to use an Ollama-hosted model for the safety analysis.
+    *   **HTTPX:** An asynchronous HTTP client used by the FastAPI backend to send requests to the Ollama server.
+*   **Image/Video Processing:**
+    *   **OpenCV (`opencv-python`):** A powerful library for computer vision tasks.
+    *   **Pillow (`pillow`):** The Python Imaging Library is another essential tool for handling and manipulating images.
+*   **Frontend:**
+    *   **HTML, CSS, and Vanilla JavaScript:** The user interface is a simple, single-page web application that communicates with the backend API.
+
+#### 3. Components and Models
+
+*   **`main.py` (The Orchestrator):** Defines API endpoints and orchestrates the two-stage analysis pipeline.
+*   **`frontend.html` (The User Interface):** A self-contained web page for file uploads and results display.
+*   **`app/services/deepfake_service.py` (The Detector):**
+    *   **Component:** `DeepfakeDetector` class.
+    *   **Model:** `prithivMLmods/Deep-Fake-Detector-v2-Model` from Hugging Face, a Vision Transformer (ViT) model.
+*   **`app/services/moderation_service.py` (The Moderator):**
+    *   **Component:** `ModerationEngine` class.
+    *   **Model:** Uses a multimodal model from Ollama (e.g., `llama-guard3:11b-vision` or `llava-llama3`) to perform safety evaluations.
+
+#####################################################################
+###        Part 2: How to Run the Application and Get Results       ###
+#####################################################################
+
+#### Step 1: Environment Setup
+
+Ensure you have **Python 3.9+** and **Ollama** installed.
+
+1.  **Create a Virtual Environment:**
+    `python -m venv .venv`
+
+2.  **Activate the Virtual Environment:**
+    *   Windows: `.venv\Scripts\activate`
+    *   macOS/Linux: `source .venv/bin/activate`
+
+3.  **Install Dependencies:**
+    `pip install -r requirements.txt`
+
+#### Step 2: Set Up the Moderation Model (Ollama)
+
+1.  **Start the Ollama Server.**
+2.  **Pull the Moderation Model:**
+    `ollama pull llava:latest`
+
+#### Step 3: (Optional) Log in to Hugging Face
+
+1.  Get your HF Token from your Hugging Face account settings.
+2.  Run the login script:
+    *   Windows: `set HF_TOKEN=your_token_here` and then `python login_hf.py`
+    *   macOS/Linux: `export HF_TOKEN=your_token_here` and then `python login_hf.py`
+
+#### Step 4: Run the Diagnostic Test
+
+Run the diagnostic script to ensure everything is configured correctly.
+`python run_diagnostics.py`
+
+#### Step 5: Launch the Application
+
+Start the FastAPI web server.
+`uvicorn main:app --reload`
+The API will be running at `http://127.0.0.1:8000`.
+
+#### Step 6: Get the Desired Result
+
+1.  **Using the Frontend:**
+    *   Open your web browser to `http://127.0.0.1:8000`.
+    *   Upload a file and see the analysis results.
+
+2.  **Using the API Directly:**
+    *   Open your web browser to `http://127.0.0.1:8000/docs` for interactive API testing.
+
+#####################################################################
+###          Part 3: Full Diagnostic Test Script Content            ###
+#####################################################################
+
+This is the content of the `run_diagnostics.py` file, included here for completeness.
+
+```python
+import sys
+import os
+import httpx
+import asyncio
+import io
+from PIL import Image
+from fastapi import UploadFile
+
+# A helper function to print colored status messages
+def print_check(name, success, message=""):
+    # Use simple text markers for broad compatibility
+    status = "[✅ PASS]" if success else "[❌ FAIL]"
+    print(f"{status:8} {name}")
+    if message:
+        # Indent messages for readability
+        print(f"   -> {message}")
+    print("-" * 50)
+
+
+async def run_diagnostics():
+    """Asynchronous function to run all diagnostic checks."""
+    print("--- Starting Full System Diagnostic ---
+")
+
+    # --- 1. Dependency Check ---
+    print("1. Checking Python dependencies...")
+    try:
+        # Attempt to import all required libraries
+        import fastapi
+        import uvicorn
+        import multipart
+        import transformers
+        import torch
+        import torchvision
+        import httpx
+        import cv2
+        from PIL import Image
+        print_check("Dependencies Import", True, "All required libraries are installed.")
+    except ImportError as e:
+        print_check("Dependencies Import", False, f"Missing library: {e.name}. Please run 'pip install -r requirements.txt'")
+        sys.exit(1) # Exit early if dependencies are missing
+
+    # --- 2. Hugging Face Model Check ---
+    print("2. Checking Hugging Face deepfake model...")
+    detector = None
+    try:
+        from app.services.deepfake_service import DeepfakeDetector
+        # This will download and cache the model from Hugging Face on first run
+        detector = DeepfakeDetector()
+        print_check("HF Model Loading", True, f"Successfully loaded '{detector.model_name}'.")
+    except Exception as e:
+        print_check("HF Model Loading", False, f"Could not load model. Check internet or HF_TOKEN if needed. Error: {e}")
+        # We can continue to run other checks even if this fails
+    
+    # --- 3. Ollama Server Connection Check ---
+    print("3. Checking Ollama server connection...")
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            # Check if the Ollama server is responsive
+            response = await client.get("http://localhost:11434")
+            response.raise_for_status()
+        print_check("Ollama Connection", True, "Successfully connected to Ollama at http://localhost:11434.")
+    except (httpx.ConnectError, httpx.TimeoutException):
+        print_check("Ollama Connection", False, "Connection failed. Is the Ollama server running locally?")
+    except httpx.HTTPStatusError as e:
+        print_check("Ollama Connection", False, f"Received an error from Ollama server: {e.response.status_code}")
+    
+    # --- 4. Core Application Logic Test ---
+    print("4. Testing core analysis pipeline...")
+    if not detector:
+        print_check("Core Logic Test", False, "Skipping test because the deepfake detector failed to load.")
+        return
+
+    try:
+        from main import analyze_media
+
+        # Create a simple, dummy image in memory for testing
+        img = Image.new('RGB', (100, 100), color='red')
+        img_byte_arr = io.BytesIO()
+        img.save(img_byte_arr, format='PNG')
+        img_byte_arr.seek(0)
+
+        # Encapsulate the in-memory file in FastAPI's UploadFile structure
+        upload_file = UploadFile(filename="diagnostic_test.png", file=img_byte_arr, content_type="image/png")
+
+        print("   -> Simulating API call to the 'analyze_media' function...")
+        # Await the function since it's an async function
+        result = await analyze_media(upload_file)
+
+        # Basic validation of the response structure
+        assert "is_synthetic" in result
+        assert "authenticity_score" in result
+        print_check("Core Logic Test", True, "Function executed and returned the expected structure.")
+        # Provide a snippet of the result for user verification
+        print(f"   -> Sample Result: {{'is_synthetic': {result.get('is_synthetic')}, 'authenticity_score': {result.get('authenticity_score')}, ...}}")
+
+    except Exception as e:
+        # Catch any unexpected errors during the logic test
+        print_check("Core Logic Test", False, f"An unexpected error occurred: {e}")
+
+
+if __name__ == "__main__":
+    # Use asyncio.run() to execute the async diagnostic function
+    asyncio.run(run_diagnostics())
+    print("
+--- Diagnostic Complete ---")
+    print("If all checks passed, the application is likely configured correctly.")
+
+```

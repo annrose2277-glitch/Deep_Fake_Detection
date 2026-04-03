@@ -1,5 +1,6 @@
 import os
 import tempfile
+import mimetypes
 import cv2
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
@@ -101,10 +102,14 @@ async def analyze_media(file: UploadFile = File(...)) -> AnalysisResponse:
             temp_file.write(content)
             temp_file_path = temp_file.name
 
+        # Determine content type
+        content_type = file.content_type
+        if not content_type or content_type == "application/octet-stream":
+            content_type, _ = mimetypes.guess_type(file.filename or "")
+
         # --- Check if it's a video or image ---
-        # Common video extensions
         video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv']
-        is_video = suffix in video_extensions
+        is_video = suffix in video_extensions or (content_type and content_type.startswith("video/"))
         
         # If it's a video, extract a frame for analysis
         if is_video:
@@ -117,7 +122,7 @@ async def analyze_media(file: UploadFile = File(...)) -> AnalysisResponse:
             analysis_path = temp_file_path
 
         # --- Stage 1: Authenticity Analysis ---
-        authenticity_result = detector.detect(analysis_path)
+        authenticity_result = await detector.detect(analysis_path)
         if not authenticity_result:
             raise HTTPException(status_code=500, detail="Authenticity analysis failed.")
 
@@ -127,11 +132,10 @@ async def analyze_media(file: UploadFile = File(...)) -> AnalysisResponse:
         # Determine if it's synthetic based on the fake_score and threshold
         is_synthetic = (fake_score >= settings.CONFIDENCE_THRESHOLD)
 
-        # Correct the label mapping: True -> AI GENERATED IMAGE, False -> REAL IMAGE
+        # Labels
         detected_label = "AI GENERATED" if is_synthetic else "REAL ONES"
         
-        # For the final authenticity score, we use the real_score
-        # This provides a consistent "how authentic is this" metric
+        # Authenticity score is based on the realness
         authenticity_score = real_score
         
         # Confidence in the verdict
@@ -141,7 +145,7 @@ async def analyze_media(file: UploadFile = File(...)) -> AnalysisResponse:
         sentiment_result = sentiment_analyzer.analyze(analysis_path)
 
         # --- Stage 3: Moderation Engine ---
-        # We now run moderation for all files to be thorough
+        # Run moderation for all files
         moderation_result = await moderator.evaluate_safety(analysis_path)
 
         return AnalysisResponse(
@@ -150,7 +154,7 @@ async def analyze_media(file: UploadFile = File(...)) -> AnalysisResponse:
             confidence=round(confidence, 4),
             detected_label=detected_label,
             file_name=file.filename or "unknown",
-            content_type=file.content_type or ( "video/mp4" if is_video else "image/jpeg"),
+            content_type=content_type or ("video/mp4" if is_video else "image/jpeg"),
             sentiment=sentiment_result,
             moderation=moderation_result,
             debug_info=authenticity_result.get("all_predictions")
