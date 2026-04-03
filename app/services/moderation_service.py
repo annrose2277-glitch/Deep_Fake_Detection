@@ -1,15 +1,15 @@
 import base64
 import httpx
 import json
-import os
+from app.core.config import settings
 
 class ModerationEngine:
     """
     A service to evaluate the safety of an image using a local or remote Ollama instance.
     """
     def __init__(self):
-        self.ollama_api_url = os.getenv("OLLAMA_API_URL", "http://localhost:11434/api/chat")
-        self.model_name = os.getenv("OLLAMA_MODEL", "llava:latest")
+        self.ollama_api_url = settings.OLLAMA_URL
+        self.model_name = settings.OLLAMA_MODEL
     
     def _encode_image_to_base64(self, file_path: str) -> str:
         """
@@ -55,18 +55,20 @@ class ModerationEngine:
             
             # Extract the content from the message
             if "message" in full_response and "content" in full_response["message"]:
+                content = full_response["message"]["content"]
                 try:
                     # The content should be a JSON string because of "format": "json"
-                    content_json = json.loads(full_response["message"]["content"])
+                    content_json = json.loads(content)
                     return {
                         "status": "success",
                         "evaluation": content_json,
-                        "raw_model_output": full_response["message"]["content"]
+                        "raw_model_output": content
                     }
                 except json.JSONDecodeError:
                     return {
                         "status": "success", 
-                        "evaluation": {"safe": "unknown", "reason": full_response["message"]["content"]}
+                        "evaluation": {"safe": "unknown", "reason": content},
+                        "raw_model_output": content
                     }
             
             return {"status": "error", "reason": "Unexpected response format from Ollama"}
@@ -75,6 +77,9 @@ class ModerationEngine:
             return {"status": "error", "reason": "Ollama service is not running or unreachable."}
         except httpx.TimeoutException:
             return {"status": "error", "reason": "Ollama request timed out."}
+        except httpx.HTTPStatusError as e:
+            print(f"HTTP error from Ollama: {e}")
+            return {"status": "error", "reason": f"HTTP {e.response.status_code} error from Ollama"}
         except Exception as e:
             print(f"An unexpected error occurred in ModerationEngine: {e}")
             return {"status": "error", "reason": str(e)}

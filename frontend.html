@@ -106,6 +106,7 @@
             padding: 1.5rem;
             border-radius: 6px;
             border: 1px solid var(--border-color);
+            margin-bottom: 1.5rem;
         }
 
         .result-section h2 {
@@ -120,9 +121,13 @@
              background-color: #e9f3ff; /* Light blue */
              border-color: #b8d6fb;
         }
+
+        #sentiment-results {
+            background-color: #f3e5f5; /* Light purple */
+            border-color: #e1bee7;
+        }
         
         #moderation-results {
-            margin-top: 1.5rem;
             background-color: #fff8e1; /* Light yellow */
             border-color: #ffecb3;
         }
@@ -161,8 +166,12 @@
                 <h2>Stage 1: Authenticity Analysis</h2>
                 <div id="auth-content"></div>
             </div>
+            <div id="sentiment-results" class="result-section">
+                <h2>Stage 2: Sentiment & Emotion Analysis</h2>
+                <div id="sentiment-content"></div>
+            </div>
             <div id="moderation-results" class="result-section">
-                <h2>Stage 2: Safety & Moderation</h2>
+                <h2>Stage 3: Safety & Moderation</h2>
                 <div id="mod-content"></div>
             </div>
         </div>
@@ -175,6 +184,7 @@
         const statusIndicator = document.getElementById('status-indicator');
         const resultsContainer = document.getElementById('results-container');
         const authContent = document.getElementById('auth-content');
+        const sentimentContent = document.getElementById('sentiment-content');
         const modContent = document.getElementById('mod-content');
 
         const API_URL = '/api/v1/analyze-media';
@@ -197,13 +207,14 @@
             const statusUpdates = [
                 { text: "Initializing...", delay: 0 },
                 { text: "Executing Stage 1: Authenticity Analysis...", delay: 500 },
-                { text: "Executing Stage 2: Safety Moderation...", delay: 1000 }
+                { text: "Executing Stage 2: Sentiment Analysis...", delay: 1000 },
+                { text: "Executing Stage 3: Safety Moderation...", delay: 1500 }
             ];
 
-            let delay = 0;
+            let totalDelay = 0;
             statusUpdates.forEach(update => {
-                delay += update.delay;
-                setTimeout(() => { statusIndicator.textContent = update.text; }, delay);
+                totalDelay += update.delay;
+                setTimeout(() => { statusIndicator.textContent = update.text; }, totalDelay);
             });
 
 
@@ -228,17 +239,18 @@
                 statusIndicator.textContent = `Error: ${error.message}`;
                 statusIndicator.style.color = 'var(--danger-color)';
             } finally {
-                // Hide status and re-enable button
+                // Hide status and re-enable button after a short delay
                 setTimeout(() => {
                     statusIndicator.style.display = 'none';
                     submitBtn.disabled = false;
-                }, 1000);
+                }, 2000);
             }
         });
 
         function renderResults(data) {
             // Clear previous results
             authContent.innerHTML = '';
+            sentimentContent.innerHTML = '';
             modContent.innerHTML = '';
 
             // Render Authenticity
@@ -252,41 +264,81 @@
                     <span class="${authStatusClass}">${authStatusText}</span>
                 </div>
                 <div class="result-item">
-                    <strong>Confidence Score:</strong>
+                    <strong>Authenticity Score:</strong>
                     <span>${(data.authenticity_score * 100).toFixed(2)}%</span>
+                </div>
+                <div class="result-item">
+                    <strong>Verdict Confidence:</strong>
+                    <span>${(data.confidence * 100).toFixed(2)}%</span>
+                </div>
+                <div class="result-item">
+                    <strong>Detected Label:</strong>
+                    <span>${data.detected_label}</span>
                 </div>
             `;
 
-            // Render Moderation if available
+            // Add Debug info if available
+            if (data.debug_info) {
+                authContent.innerHTML += `
+                    <div style="margin-top: 1rem; font-size: 0.8rem; color: #6c757d;">
+                        <strong>Debug Info (All Predictions):</strong>
+                        <pre style="background: #f1f3f5; padding: 0.5rem; border-radius: 4px; overflow-x: auto;">${JSON.stringify(data.debug_info, null, 2)}</pre>
+                    </div>
+                `;
+            }
+
+            // Render Sentiment
+            if (data.sentiment) {
+                document.getElementById('sentiment-results').style.display = 'block';
+                sentimentContent.innerHTML = `
+                    <div class="result-item">
+                        <strong>Top Sentiment:</strong>
+                        <span>${data.sentiment.sentiment_label}</span>
+                    </div>
+                    <div class="result-item">
+                        <strong>Score:</strong>
+                        <span>${(data.sentiment.sentiment_score * 100).toFixed(2)}%</span>
+                    </div>
+                    <div style="margin-top: 1rem; font-size: 0.8rem; color: #6c757d;">
+                        <strong>All Emotions:</strong>
+                        <pre style="background: #f1f3f5; padding: 0.5rem; border-radius: 4px; overflow-x: auto;">${JSON.stringify(data.sentiment.all_sentiments, null, 2)}</pre>
+                    </div>
+                `;
+            } else {
+                document.getElementById('sentiment-results').style.display = 'none';
+            }
+
+            // Render Moderation
             if (data.moderation) {
                 document.getElementById('moderation-results').style.display = 'block';
-                
                 let contentHtml = '';
+                
                 if (data.moderation.status === 'success') {
-                    const eval = data.moderation.evaluation;
+                    const evaluation = data.moderation.evaluation;
+                    const isSafe = evaluation.safe;
                     contentHtml = `
                         <div class="result-item">
                             <strong>Safe for Work:</strong>
-                            <span class="${eval.safe ? 'status-real' : 'status-synthetic'}">${eval.safe ? 'YES' : 'NO'}</span>
+                            <span class="${isSafe === true ? 'status-real' : (isSafe === false ? 'status-synthetic' : '')}">
+                                ${isSafe === true ? 'YES' : (isSafe === false ? 'NO' : 'UNKNOWN')}
+                            </span>
                         </div>
-                        <div class="result-item">
-                            <strong>Reasoning:</strong>
-                            <p>${eval.reason || 'No detailed reason provided.'}</p>
-                        </div>
-                    `;
-                } else if (data.moderation.status === 'error' || data.moderation.status === 'skipped') {
-                    contentHtml = `
-                        <div class="result-item">
-                            <strong>Status:</strong>
-                            <span>${data.moderation.status.toUpperCase()}</span>
-                        </div>
-                        <div class="result-item">
+                        <div class="result-item" style="flex-direction: column; align-items: flex-start;">
                             <strong>Reason:</strong>
-                            <span>${data.moderation.reason || 'Service error.'}</span>
+                            <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem;">${evaluation.reason || 'N/A'}</p>
                         </div>
                     `;
                 } else {
-                    contentHtml = '<pre>' + JSON.stringify(data.moderation, null, 2) + '</pre>';
+                    contentHtml = `
+                        <div class="result-item">
+                            <strong>Status:</strong>
+                            <span>${(data.moderation.status || 'ERROR').toUpperCase()}</span>
+                        </div>
+                        <div class="result-item">
+                            <strong>Reason:</strong>
+                            <span>${data.moderation.reason || 'Unknown error occurred'}</span>
+                        </div>
+                    `;
                 }
                 modContent.innerHTML = contentHtml;
             } else {

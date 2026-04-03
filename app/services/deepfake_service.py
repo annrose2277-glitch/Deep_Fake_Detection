@@ -3,6 +3,7 @@ from PIL import Image, UnidentifiedImageError
 import torch
 import cv2
 import os
+from app.core.config import settings
 
 class DeepfakeDetector:
     """
@@ -15,7 +16,7 @@ class DeepfakeDetector:
         Initializes the DeepfakeDetector by loading the model and its processor
         from Hugging Face.
         """
-        self.model_name = "prithivMLmods/Deep-Fake-Detector-v2-Model"
+        self.model_name = settings.DEEPFAKE_MODEL
         try:
             self.processor = AutoImageProcessor.from_pretrained(self.model_name)
             self.model = AutoModelForImageClassification.from_pretrained(self.model_name)
@@ -32,8 +33,8 @@ class DeepfakeDetector:
             file_path: The path to the file to be analyzed.
 
         Returns:
-            A dictionary with the 'label' ('REAL' or 'FAKE') and a 'score',
-            or None if the analysis fails.
+            A dictionary with 'real_score', 'fake_score', 'best_label', 
+            'best_score', and 'all_predictions', or None if the analysis fails.
         """
         image = None
         try:
@@ -63,39 +64,41 @@ class DeepfakeDetector:
                 outputs = self.model(**inputs)
                 logits = outputs.logits
 
-            # The model has two outputs: 'Deepfake' and 'Realism'.
-            # Logits are raw scores. We apply softmax to get probabilities.
-            # A higher score for 'Deepfake' means it's likely fake.
-            # A higher score for 'Realism' means it's likely real.
+            # Apply softmax to get probabilities
+            probabilities = torch.nn.functional.softmax(logits, dim=1)[0]
             
-            # Find the index of the 'FAKE'/'Deepfake' class
-            fake_index = 0
-            real_index = 1
-            if self.model.config.id2label[0] == 'Realism':
-                real_index = 0
-                fake_index = 1
-                
-            # Get the probability of the image being FAKE
-            # We are interested in the 'Deepfake' score
-            probability = torch.nn.functional.softmax(logits, dim=1)[0][fake_index].item()
-            
-            # Determine label based on which logit is larger
+            # Create a list of all predictions with labels and scores
+            all_predictions = []
+            for i, prob in enumerate(probabilities):
+                label = self.model.config.id2label[i]
+                all_predictions.append({
+                    "label": label,
+                    "score": round(prob.item(), 4)
+                })
+
+            # Identify the best overall prediction
             predicted_class_id = logits.argmax(-1).item()
-            raw_label = self.model.config.id2label[predicted_class_id]
+            best_label = self.model.config.id2label[predicted_class_id]
+            best_score = probabilities[predicted_class_id].item()
+
+            # The model has two outputs: 'Deepfake' (LABEL_1) and 'Realism' (LABEL_0).
+            # We map them to REAL and FAKE for clarity.
+            predictions_map = {p['label'].upper(): p['score'] for p in all_predictions}
             
-            if raw_label == 'Deepfake':
-                label = 'FAKE'
-                score = probability
-            elif raw_label == 'Realism':
-                label = 'REAL'
-                score = 1 - probability # Score for 'REAL' is 1 - P(FAKE)
-            else:
-                label = raw_label # Fallback
-                score = probability
+            real_score = predictions_map.get('REALISM', predictions_map.get('LABEL_0', 0.0))
+            fake_score = predictions_map.get('DEEPFAKE', predictions_map.get('LABEL_1', 0.0))
+
+            # Fallback if names are different
+            if all(k in predictions_map for k in ['REAL', 'FAKE']):
+                real_score = predictions_map.get('REAL', 0.0)
+                fake_score = predictions_map.get('FAKE', 0.0)
 
             return {
-                "label": label,
-                "score": round(score, 4)
+                "best_label": best_label,
+                "best_score": round(best_score, 4),
+                "real_score": round(real_score, 4),
+                "fake_score": round(fake_score, 4),
+                "all_predictions": all_predictions
             }
         except Exception as e:
             print(f"Error during model inference: {e}")
